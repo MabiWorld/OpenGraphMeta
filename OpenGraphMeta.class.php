@@ -5,18 +5,19 @@
  * @file
  * @ingroup Extensions
  * @author Daniel Friesen (http://danf.ca/mw/)
+ * @author Southparkfan
  * @license https://www.gnu.org/copyleft/gpl.html GNU General Public License 2.0 or later
  * @link https://www.mediawiki.org/wiki/Extension:OpenGraphMeta Documentation
  */
 
 class OpenGraphMeta {
-
 	/**
 	 * @param Parser $parser
 	 * @return bool
 	 */
 	public static function onParserFirstCallInit( Parser $parser ) {
 		$parser->setFunctionHook( 'setmainimage', array( __CLASS__, 'setMainImagePF' ) );
+		$parser->setFunctionHook( 'setmaintitle', array( __CLASS__, 'setMainTitlePF' ) );
 		return true;
 	}
 
@@ -38,10 +39,34 @@ class OpenGraphMeta {
 		return ''; //$mainImage;
 	}
 
+	/**
+	* @param Parser $parser
+	* @param string $mainTitle
+	* @return string
+	*/
+	public static function setMainTitlePF( Parser $parser, $mainTitle ) {
+		$parserOutput = $parser->getOutput();
+		$setMainTitle = $parserOutput->getExtensionData( 'setmaintitle' );
+		if ( $setMainTitle !== null ) {
+			return $mainTitle;
+		}
+
+		$parserOutput->setExtensionData( 'setmaintitle', $mainTitle );
+
+		return $mainTitle;
+	}
+
+	/**
+	* @param OutputPage &$out
+	* @param ParserOutput $parserOutput
+	* @return bool
+	*/
 	public static function onOutputPageParserOutput( OutputPage &$out, ParserOutput $parserOutput ) {
 		global $wgLogo, $wgSitename, $wgXhtmlNamespaces, $egFacebookAppId, $egFacebookAdmins, $egTwitterSite;
 
 		$setMainImage = $parserOutput->getExtensionData( 'setmainimage' );
+		$setMainTitle = $parserOutput->getExtensionData( 'setmaintitle' );
+
 		if ( $setMainImage !== null ) {
 			$mainImage = wfFindFile( Title::newFromText( $setMainImage, NS_FILE ) );
 		} else {
@@ -75,9 +100,19 @@ class OpenGraphMeta {
 		}
 		$meta["twitter:title"] = $meta["og:title"];
 
+		// {{#setmaintitle}} was used, override og:title value
+		if ( $setMainTitle !== null ) {
+			$meta['og:title'] = $setMainTitle;
+		}
+
 		if ( $hasImage ) {
 			if ( is_object( $mainImage ) ) {
-				$meta['og:image'] = wfExpandUrl( $mainImage->createThumb( 100 * 3, 100 ) );
+				// The official OpenGraph documentation says:
+				// - thumbnail previews can't be smaller than 200px x 200px
+				// - thumbnail previews look best at 1200px x 630px
+				// @see https://developers.facebook.com/docs/sharing/best-practices/
+				// @see https://phabricator.wikimedia.org/T193986
+				$meta['og:image'] = wfExpandUrl( $mainImage->createThumb( 1200, 630 ) );
 			} else {
 				// In some edge-cases we won't have defined an object but rather a full URL.
 				$meta['og:image'] = $mainImage;
