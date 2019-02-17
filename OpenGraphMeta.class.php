@@ -29,21 +29,21 @@ class OpenGraphMeta {
 		$parserOutput = $parser->getOutput();
 		$setMainImage = $parserOutput->getExtensionData( 'setmainimage' );
 		if ( $setMainImage !== null ) {
-			return $mainImage;
+			return ''; //$mainImage;
 		}
 
 		$file = Title::newFromText( $mainImage, NS_FILE );
-		$parserOutput->setExtensionData( 'setmainimage', $file->getDBkey() );
+		$parserOutput->setExtensionData( 'setmainimage', $mainImage );
 
-		return $mainImage;
+		return ''; //$mainImage;
 	}
 
 	public static function onOutputPageParserOutput( OutputPage &$out, ParserOutput $parserOutput ) {
-		global $wgLogo, $wgSitename, $wgXhtmlNamespaces, $egFacebookAppId, $egFacebookAdmins;
+		global $wgLogo, $wgSitename, $wgXhtmlNamespaces, $egFacebookAppId, $egFacebookAdmins, $egTwitterSite;
 
 		$setMainImage = $parserOutput->getExtensionData( 'setmainimage' );
 		if ( $setMainImage !== null ) {
-			$mainImage = wfFindFile( Title::newFromDBkey( $setMainImage ) );
+			$mainImage = wfFindFile( Title::newFromText( $setMainImage, NS_FILE ) );
 		} else {
 			$mainImage = false;
 		}
@@ -51,8 +51,10 @@ class OpenGraphMeta {
 		$wgXhtmlNamespaces['og'] = 'http://opengraphprotocol.org/schema/';
 		$title = $out->getTitle();
 		$isMainpage = $title->isMainPage();
+		$hasImage = $mainImage !== false;
 
 		$meta = array();
+		$meta["twitter:card"] = "summary";
 
 		if ( $isMainpage ) {
 			$meta['og:type'] = 'website';
@@ -65,13 +67,15 @@ class OpenGraphMeta {
 				( defined( 'NS_BLOG_ARTICLE' ) && $title->getNamespace() == NS_BLOG_ARTICLE ) ||
 				( defined( 'NS_BLOG_ARTICLE_TALK' ) && $title->getNamespace() == NS_BLOG_ARTICLE_TALK )
 			) {
-				$meta['og:title'] = $title->getSubpageText();
+				$ogTitle = $title->getSubpageText();
 			} else {
-				$meta['og:title'] = $title->getText();
+				$ogTitle = $title->getText();
 			}
+			$meta['og:title'] = str_replace('/', ' - ', $ogTitle);
 		}
+		$meta["twitter:title"] = $meta["og:title"];
 
-		if ( ( $mainImage !== false ) ) {
+		if ( $hasImage ) {
 			if ( is_object( $mainImage ) ) {
 				$meta['og:image'] = wfExpandUrl( $mainImage->createThumb( 100 * 3, 100 ) );
 			} else {
@@ -81,9 +85,12 @@ class OpenGraphMeta {
 		} elseif ( $isMainpage ) {
 			$meta['og:image'] = wfExpandUrl( $wgLogo );
 		}
+		if ( isset($meta["og:image"]) ) {
+			$meta["twitter:image"] = $meta["og:image"];
+		}
 		$description = $parserOutput->getProperty( 'description' );
 		if ( $description !== false ) { // set by Description2 extension, install it if you want proper og:description support
-			$meta['og:description'] = $description;
+			$meta["twitter:description"] = $meta['og:description'] = $description;
 		}
 		$meta['og:url'] = $title->getFullURL();
 		if ( $egFacebookAppId ) {
@@ -92,13 +99,21 @@ class OpenGraphMeta {
 		if ( $egFacebookAdmins ) {
 			$meta['fb:admins'] = $egFacebookAdmins;
 		}
+		if ( $egTwitterSite ) {
+			$meta["twitter:site"] = $egTwitterSite;
+		}
 
 		foreach( $meta as $property => $value ) {
 			if ( $value ) {
+				if (substr($property, 0, 8) == "twitter:") {
+					$attr = "name";
+				} else {
+					$attr = "property";
+				}
 				$out->addHeadItem(
-					"meta:property:$property",
+					"meta:$attr:$property",
 					'	' . Html::element( 'meta', array(
-						'property' => $property,
+						$attr => $property,
 						'content' => $value
 					) ) . "\n"
 				);
