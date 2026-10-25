@@ -6,19 +6,19 @@
  * @ingroup Extensions
  * @author Daniel Friesen (http://danf.ca/mw/)
  * @author Southparkfan
- * @license https://www.gnu.org/copyleft/gpl.html GNU General Public License 2.0 or later
+ * @license GPL-2.0-or-later
  * @link https://www.mediawiki.org/wiki/Extension:OpenGraphMeta Documentation
  */
+
+use MediaWiki\MediaWikiServices;
 
 class OpenGraphMeta {
 	/**
 	 * @param Parser $parser
-	 * @return bool
 	 */
 	public static function onParserFirstCallInit( Parser $parser ) {
-		$parser->setFunctionHook( 'setmainimage', array( __CLASS__, 'setMainImagePF' ) );
-		$parser->setFunctionHook( 'setmaintitle', array( __CLASS__, 'setMainTitlePF' ) );
-		return true;
+		$parser->setFunctionHook( 'setmainimage', [ __CLASS__, 'setMainImagePF' ] );
+		$parser->setFunctionHook( 'setmaintitle', [ __CLASS__, 'setMainTitlePF' ] );
 	}
 
 	/**
@@ -34,16 +34,18 @@ class OpenGraphMeta {
 		}
 
 		$file = Title::newFromText( $mainImage, NS_FILE );
-		$parserOutput->setExtensionData( 'setmainimage', $mainImage );
+		if ( $file !== null ) {
+			$parserOutput->setExtensionData( 'setmainimage', $file->getDBkey() );
+		}
 
 		return ''; //$mainImage;
 	}
 
 	/**
-	* @param Parser $parser
-	* @param string $mainTitle
-	* @return string
-	*/
+	 * @param Parser $parser
+	 * @param string $mainTitle
+	 * @return string
+	 */
 	public static function setMainTitlePF( Parser $parser, $mainTitle ) {
 		$parserOutput = $parser->getOutput();
 		$setMainTitle = $parserOutput->getExtensionData( 'setmaintitle' );
@@ -57,10 +59,9 @@ class OpenGraphMeta {
 	}
 
 	/**
-	* @param OutputPage &$out
-	* @param ParserOutput $parserOutput
-	* @return bool
-	*/
+	 * @param OutputPage &$out
+	 * @param ParserOutput $parserOutput
+	 */
 	public static function onOutputPageParserOutput( OutputPage &$out, ParserOutput $parserOutput ) {
 		global $wgLogo, $wgSitename, $wgXhtmlNamespaces, $egFacebookAppId, $egFacebookAdmins, $egTwitterSite;
 
@@ -68,7 +69,8 @@ class OpenGraphMeta {
 		$setMainTitle = $parserOutput->getExtensionData( 'setmaintitle' );
 
 		if ( $setMainImage !== null ) {
-			$mainImage = wfFindFile( Title::newFromText( $setMainImage, NS_FILE ) );
+			$mainImage = MediaWikiServices::getInstance()->getRepoGroup()
+				->findFile( Title::newFromText( $setMainImage, NS_FILE ) );
 		} else {
 			$mainImage = false;
 		}
@@ -78,7 +80,7 @@ class OpenGraphMeta {
 		$isMainpage = $title->isMainPage();
 		$hasImage = $mainImage !== false;
 
-		$meta = array();
+		$meta = [];
 		$meta["twitter:card"] = "summary";
 
 		if ( $isMainpage ) {
@@ -87,7 +89,7 @@ class OpenGraphMeta {
 		} else {
 			$meta['og:type'] = 'article';
 			$meta['og:site_name'] = $wgSitename;
-			// Try to chose the most appropriate title for showing in news feeds.
+			// Try to choose the most appropriate title for showing in news feeds.
 			if (
 				( defined( 'NS_BLOG_ARTICLE' ) && $title->getNamespace() == NS_BLOG_ARTICLE ) ||
 				( defined( 'NS_BLOG_ARTICLE_TALK' ) && $title->getNamespace() == NS_BLOG_ARTICLE_TALK )
@@ -129,7 +131,15 @@ class OpenGraphMeta {
 		}
 		$meta['og:url'] = $title->getFullURL();
 		if ( $egFacebookAppId ) {
-			$meta['fb:app_id'] = $egFacebookAppId;
+			// fb:app_id needs a prefix property declaring the namespace, so just add it directly
+			$out->addHeadItem(
+				'meta:property:fb:app_id',
+				'	' . Html::element( 'meta', [
+					'property' => 'fb:app_id',
+					'content' => $egFacebookAppId,
+					'prefix' => 'fb: http://www.facebook.com/2008/fbml'
+				] ) . "\n"
+			);
 		}
 		if ( $egFacebookAdmins ) {
 			$meta['fb:admins'] = $egFacebookAdmins;
@@ -138,7 +148,15 @@ class OpenGraphMeta {
 			$meta["twitter:site"] = $egTwitterSite;
 		}
 
-		foreach( $meta as $property => $value ) {
+		// Add og:image to <meta> tags instead of as a <head> item to get it earlier in the page
+		if ( isset( $meta['og:image'] ) ) {
+			$out->addMeta( 'og:image', $meta['og:image'] );
+			unset( $meta['og:image'] );
+		}
+
+		Hooks::run( 'OpenGraphMetaHeaders', [ &$meta, $title, $out, $parserOutput ] );
+
+		foreach ( $meta as $property => $value ) {
 			if ( $value ) {
 				if (substr($property, 0, 8) == "twitter:") {
 					$attr = "name";
@@ -147,15 +165,13 @@ class OpenGraphMeta {
 				}
 				$out->addHeadItem(
 					"meta:$attr:$property",
-					'	' . Html::element( 'meta', array(
+					'	' . Html::element( 'meta', [
 						$attr => $property,
 						'content' => $value
-					) ) . "\n"
+					] ) . "\n"
 				);
 			}
 		}
-
-		return true;
 	}
 
 }
