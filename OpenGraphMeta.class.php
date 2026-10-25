@@ -24,7 +24,7 @@ class OpenGraphMeta {
 	/**
 	 * @param Parser $parser
 	 * @param string $mainImage
-	 * @return string
+	 * @return string Always an empty string
 	 */
 	public static function setMainImagePF( Parser $parser, $mainImage ) {
 		$parserOutput = $parser->getOutput();
@@ -44,18 +44,18 @@ class OpenGraphMeta {
 	/**
 	 * @param Parser $parser
 	 * @param string $mainTitle
-	 * @return string
+	 * @return string Always an empty string
 	 */
 	public static function setMainTitlePF( Parser $parser, $mainTitle ) {
 		$parserOutput = $parser->getOutput();
 		$setMainTitle = $parserOutput->getExtensionData( 'setmaintitle' );
 		if ( $setMainTitle !== null ) {
-			return $mainTitle;
+			return '';
 		}
 
 		$parserOutput->setExtensionData( 'setmaintitle', $mainTitle );
 
-		return $mainTitle;
+		return '';
 	}
 
 	/**
@@ -63,7 +63,7 @@ class OpenGraphMeta {
 	 * @param ParserOutput $parserOutput
 	 */
 	public static function onOutputPageParserOutput( OutputPage &$out, ParserOutput $parserOutput ) {
-		global $wgLogo, $wgSitename, $wgXhtmlNamespaces, $egFacebookAppId, $egFacebookAdmins, $egTwitterSite;
+		global $wgLogo, $wgXhtmlNamespaces, $egFacebookAppId, $egFacebookAdmins, $egTwitterSite;
 
 		$setMainImage = $parserOutput->getExtensionData( 'setmainimage' );
 		$setMainTitle = $parserOutput->getExtensionData( 'setmaintitle' );
@@ -79,16 +79,17 @@ class OpenGraphMeta {
 		$title = $out->getTitle();
 		$isMainpage = $title->isMainPage();
 		$hasImage = $mainImage !== false;
+		$siteName = $out->msg( 'opengraphmeta-site-name' );
 
 		$meta = [];
 		$meta["twitter:card"] = "summary";
 
 		if ( $isMainpage ) {
 			$meta['og:type'] = 'website';
-			$meta['og:title'] = $wgSitename;
+			$meta['og:title'] = $siteName;
 		} else {
 			$meta['og:type'] = 'article';
-			$meta['og:site_name'] = $wgSitename;
+			$meta['og:site_name'] = $siteName;
 			// Try to choose the most appropriate title for showing in news feeds.
 			if (
 				( defined( 'NS_BLOG_ARTICLE' ) && $title->getNamespace() == NS_BLOG_ARTICLE ) ||
@@ -125,8 +126,16 @@ class OpenGraphMeta {
 		if ( isset($meta["og:image"]) ) {
 			$meta["twitter:image"] = $meta["og:image"];
 		}
-		$description = $parserOutput->getProperty( 'description' );
-		if ( $description !== false ) { // set by Description2 extension, install it if you want proper og:description support
+		if ( method_exists( $parserOutput, 'getPageProperty' ) ) {
+			// MW 1.38
+			$description = $parserOutput->getPageProperty( 'description' );
+		} else {
+			$description = $parserOutput->getProperty( 'description' );
+			if ( $description === false ) {
+				$description = null;
+			}
+		}
+		if ( $description !== null ) { // set by Description2 extension, install it if you want proper og:description support
 			$meta["twitter:description"] = $meta['og:description'] = $description;
 		}
 		$meta['og:url'] = $title->getFullURL();
@@ -154,7 +163,7 @@ class OpenGraphMeta {
 			unset( $meta['og:image'] );
 		}
 
-		Hooks::run( 'OpenGraphMetaHeaders', [ &$meta, $title, $out, $parserOutput ] );
+		MediaWikiServices::getInstance()->getHookContainer()->run( 'OpenGraphMetaHeaders', [ &$meta, $title, $out, $parserOutput ] );
 
 		foreach ( $meta as $property => $value ) {
 			if ( $value ) {
